@@ -221,14 +221,6 @@ impl Client {
             .header("Authorization", format!("Bearer {}", token.access_token))
             .send()
             .await?;
-        let out = res.text().await?;
-        println!("{}", out);
-        let res = self
-            .http_client
-            .get(endpoint)
-            .header("Authorization", format!("Bearer {}", token.access_token))
-            .send()
-            .await?;
         let result = res.json::<T>().await?;
         Ok(result)
     }
