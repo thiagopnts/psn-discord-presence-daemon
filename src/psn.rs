@@ -139,8 +139,10 @@ pub struct Profile {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Token {
+    // access token is valid for 60 minutes
     pub access_token: String,
     expires_in: u64,
+    // refresh token is valid for 2 months
     refresh_token: String,
     refresh_token_expires_in: u64,
     id_token: String,
@@ -186,6 +188,26 @@ impl Client {
             .form(&params)
             .send()
             .await?;
+        let token = res.json::<Token>().await?;
+        Ok(token)
+    }
+
+    pub async fn refresh_token(&self, token: Token) -> Result<Token, Box<dyn std::error::Error>> {
+        let params = [
+            ("grant_type", "refresh_token"),
+            ("token_format", "jtw"),
+            ("refresh_token", &token.refresh_token),
+            ("scope", &token.scope),
+        ];
+        let res: reqwest::Response = self
+            .http_client
+            .post(TOKEN_ENDPOINT)
+            .header("Authorization", format!("Basic {}", CLIENT_AUTH))
+            .header("Content-type", "application/x-www-form-urlencoded")
+            .form(&params)
+            .send()
+            .await?;
+
         let token = res.json::<Token>().await?;
         Ok(token)
     }
