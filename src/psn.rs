@@ -21,6 +21,12 @@ pub struct GameTitleInfo {
     pub concept_icon_url: String,
 }
 
+impl GameTitleInfo {
+    pub fn title_id(&self) -> String {
+        self.np_title_id.to_lowercase()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PlatformInfo {
     #[serde(alias = "onlineStatus")]
@@ -63,12 +69,12 @@ impl Presence {
         self.basic_presence.game_title_info.len() > 0
     }
 
-    pub fn current_game(&self) -> Option<String> {
+    pub fn current_game(&self) -> Option<&GameTitleInfo> {
         if !self.is_playing() {
             return None;
         }
         let game = self.basic_presence.game_title_info.get(0).unwrap();
-        Some(game.title_name.clone())
+        Some(game)
     }
 }
 
