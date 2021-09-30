@@ -8,6 +8,7 @@ pub struct Client {
     http_client: reqwest::Client,
     rpc_client: DiscordIpc,
     app_id: String,
+    auth_token: String,
     pid: i32,
 }
 
@@ -23,6 +24,7 @@ impl<'a> Client {
             http_client,
             app_id: app_id.clone(),
             rpc_client,
+            auth_token: "".to_string(),
             // fixed value for now, once things stabilize we can use std::process:id()
             pid: 666,
         }
@@ -40,7 +42,7 @@ impl<'a> Client {
                     "pid": self.pid,
                     "activity": activity,
                 },
-                "nonce": Uuid::new_v4().to_string()
+                "nonce": "0",
             }),
             1,
         )?;
@@ -62,26 +64,76 @@ impl<'a> Client {
         self.rpc_client.close()
     }
 
-    //    pub async fn assets(&self) -> Result<Vec<Asset>, Box<dyn std::error::Error>> {
-    //        self.make_get_call(&format!(
-    //            "https://discordapp.com/api/oauth2/applications/{}/assets",
-    //            self.app_id
-    //        ))
-    //    }
-    //    async fn make_get_call<T>(&self, endpoint: &str) -> Result<T, Box<dyn std::error::Error>>
-    //    where
-    //        T: serde::de::DeserializeOwned,
-    //    {
-    //        let res = self.http_client.get(endpoint).send().await?;
-    //        let result = res.json::<T>().await?;
-    //        Ok(result)
-    //    }
+    pub async fn assets(&self) -> Result<Vec<Asset>, Box<dyn std::error::Error + Send + Sync>> {
+        self.make_get_call(&format!(
+            "https://discordapp.com/api/oauth2/applications/{}/assets",
+            self.app_id
+        ))
+        .await
+    }
+
+    pub async fn create_asset(
+        &self,
+        name: String,
+        image: &str,
+    ) -> Result<Asset, Box<dyn std::error::Error + Send + Sync>> {
+        let res = self
+            .http_client
+            .post(&format!(
+                "https://discordapp.com/api/oauth2/applications/{}/assets",
+                self.app_id
+            ))
+            .header("Authorization", &self.auth_token)
+            .json(&CreateAsset::new(name.clone(), image.to_string()))
+            .send()
+            .await?;
+        let j = serde_json::to_string(&CreateAsset::new(name, image.to_string()))?;
+        let asset = res.json().await?;
+        println!("{:?}", asset);
+        Ok(asset)
+    }
+
+    async fn make_get_call<T>(
+        &self,
+        endpoint: &str,
+    ) -> Result<T, Box<dyn std::error::Error + Send + Sync>>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let res = self.http_client.get(endpoint).send().await?;
+        let result = res.json::<T>().await?;
+        Ok(result)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+struct CreateAsset {
+    image: String,
+    name: String,
+    #[serde(rename = "type")]
+    kind: i32,
+}
+
+impl CreateAsset {
+    fn new(name: String, image: String) -> Self {
+        CreateAsset {
+            image,
+            name,
+            kind: 1,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Asset {
     id: String,
     #[serde(alias = "type")]
     kind: i32,
-    name: String,
+    pub name: String,
+}
+
+impl Asset {
+    pub fn new(id: String, kind: i32, name: String) -> Self {
+        Self { id, kind, name }
+    }
 }

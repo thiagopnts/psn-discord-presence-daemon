@@ -1,3 +1,6 @@
+use std::fmt;
+use std::{ffi::OsStr, path::Path};
+
 use serde::{Deserialize, Serialize};
 
 const TOKEN_ENDPOINT: &str = "https://ca.account.sony.com/api/authz/v3/oauth/token";
@@ -18,7 +21,7 @@ pub struct GameTitleInfo {
     #[serde(alias = "launchPlatform")]
     launch_platform: String,
     #[serde(alias = "conceptIconUrl")]
-    pub concept_icon_url: String,
+    pub concept_icon_url: Option<String>,
 }
 
 impl GameTitleInfo {
@@ -150,6 +153,20 @@ pub struct Token {
     scope: String,
 }
 
+impl Token {
+    pub fn new(access_token: String) -> Self {
+        Self {
+            access_token,
+            expires_in: 0,
+            refresh_token: "".to_string(),
+            id_token: "".to_string(),
+            token_type: "bearer".to_string(),
+            scope: "psn:mobile.v1 psn:clientapp".to_string(),
+            refresh_token_expires_in: 0,
+        }
+    }
+}
+
 pub struct Client {
     http_client: reqwest::Client,
 }
@@ -192,6 +209,21 @@ impl Client {
         Ok(token)
     }
 
+    pub async fn get_game_image_as_data_uri(
+        &self,
+        game: &GameTitleInfo,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(icon_url) = &game.concept_icon_url {
+            let res = self.http_client.get(icon_url).send().await?;
+            let bytes = res.bytes().await?;
+            if let Some(ext) = Path::new(&icon_url).extension().and_then(OsStr::to_str) {
+                let data = format!("data:image/{};base64,{}", ext, base64::encode(bytes));
+                return Ok(data);
+            }
+        }
+        Err(Box::new(PSNError::new("failed to get image as data uri")))
+    }
+
     pub async fn refresh_token(&self, token: Token) -> Result<Token, Box<dyn std::error::Error>> {
         let params = [
             ("grant_type", "refresh_token"),
@@ -216,7 +248,7 @@ impl Client {
         &self,
         token: Token,
         account_id: String,
-    ) -> Result<Profile, Box<dyn std::error::Error>> {
+    ) -> Result<Profile, Box<dyn std::error::Error + Send + Sync>> {
         self.make_get_call(
             &format!(
                 "https://m.np.playstation.net/api/userProfile/v1/internal/users/{}/profiles",
@@ -227,11 +259,17 @@ impl Client {
         .await
     }
 
-    pub async fn get_account(&self, token: Token) -> Result<Account, Box<dyn std::error::Error>> {
+    pub async fn get_account(
+        &self,
+        token: Token,
+    ) -> Result<Account, Box<dyn std::error::Error + Send + Sync>> {
         self.make_get_call(ACCOUNT_ENDPOINT, token).await
     }
 
-    pub async fn get_presence(&self, token: Token) -> Result<Presence, Box<dyn std::error::Error>> {
+    pub async fn get_presence(
+        &self,
+        token: Token,
+    ) -> Result<Presence, Box<dyn std::error::Error + Send + Sync>> {
         self.make_get_call(PRESENCE_ENDPOINT, token).await
     }
 
@@ -239,7 +277,7 @@ impl Client {
         &self,
         endpoint: &str,
         token: Token,
-    ) -> Result<T, Box<dyn std::error::Error>>
+    ) -> Result<T, Box<dyn std::error::Error + Send + Sync>>
     where
         T: serde::de::DeserializeOwned,
     {
@@ -251,5 +289,30 @@ impl Client {
             .await?;
         let result = res.json::<T>().await?;
         Ok(result)
+    }
+}
+
+#[derive(Debug)]
+struct PSNError {
+    details: String,
+}
+
+impl PSNError {
+    fn new(msg: &str) -> Self {
+        Self {
+            details: msg.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for PSNError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.details)
+    }
+}
+
+impl std::error::Error for PSNError {
+    fn description(&self) -> &str {
+        &self.details
     }
 }
